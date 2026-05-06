@@ -2224,7 +2224,9 @@
             currentView = view;
             document.querySelectorAll('.view-controls .btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
             document.documentElement.style.setProperty('--cell-width', VIEW_CONFIG[view].cellWidth + 'px');
-            localStorage.setItem('taskflow_gantt_view', view);
+            // La vue est mémorisée par table source pour éviter qu'un autre Gantt
+            // du même document reprenne automatiquement le même niveau de zoom.
+            localStorage.setItem(getScopedStorageKey('taskflow_gantt_view'), view);
 
             // 3. Calculer viewStartDate pour centrer sur centerDate dans la NOUVELLE vue
             const newCfg   = VIEW_CONFIG[view];
@@ -2370,12 +2372,14 @@
         // ═══════════════════════════════════════════════════════════════════════
         function loadFilters() {
             try {
-                const s = localStorage.getItem('taskflow_gantt_filters');
+                // Les filtres et la vue sont relus avec la même clé scopée que la
+                // configuration, afin que chaque table source garde son état local.
+                const s = localStorage.getItem(getScopedStorageKey('taskflow_gantt_filters'));
                 try { const saved = JSON.parse(s); if (saved && typeof saved === 'object') {
                     filters.projects = Array.isArray(saved.projects) ? saved.projects : null;
                     filters.assignees = Array.isArray(saved.assignees) ? saved.assignees : null;
                 }} catch(e) {}
-                const v = localStorage.getItem('taskflow_gantt_view');
+                const v = localStorage.getItem(getScopedStorageKey('taskflow_gantt_view'));
                 if (v && VIEW_CONFIG[v]) currentView = v;
             } catch (e) {}
         }
@@ -4352,15 +4356,96 @@
         }
 
         // ── Cache localStorage : fallback si Grist efface les options ──────────
-        // Grist peut appeler setOptions(null) quand une table référencée est renommée/supprimée.
-        // On garde une copie dans localStorage comme filet de sécurité.
-        const LS_KEY = 'gantt_config_' + (location.hostname + location.pathname).replace(/[^a-z0-9]/gi, '_');
+        // Le cache est isolé par table source Grist afin que deux Gantt utilisant
+        // le même URL mais des tables source différentes ne partagent pas la config.
+        const LS_BASE_KEY = (location.hostname + location.pathname).replace(/[^a-z0-9]/gi, '_');
 
-        function lsSaveOptions(options) {
-            try { localStorage.setItem(LS_KEY, JSON.stringify(options)); } catch(e) {}
+        // Retourne l'identifiant utilisé pour isoler la configuration d'un Gantt.
+        // Aujourd'hui, ce scope correspond à la table source Grist du widget.
+        function getStorageScope() {
+            return String(TABLE.tasks || _mainTableId || 'unknown').replace(/[^a-z0-9]/gi, '_');
         }
+
+        // Construit une clé localStorage stable et isolée par URL de widget + table source.
+        // Cela évite qu'un Gantt basé sur une autre table récupère la même config locale.
+        function getScopedStorageKey(prefix) {
+            return prefix + '_' + LS_BASE_KEY + '_' + getStorageScope();
+        }
+
+        const PROFILED_OPTIONS_VERSION = 1;
+        const CONFIG_OPTION_KEYS = [
+            'tableChefProjet', 'tableOperations', 'tablePhases',
+            'colChefNom', 'colChefPrenom', 'colChefFonction', 'colChefActif',
+            'colOpsNom', 'colOpsNumOpe', 'colOpsStatut', 'colOpsDateReception',
+            'colPhasesNom', 'colPhasesCouleur', 'colPhasesNumOrder'
+        ];
+
+        // Récupère une seule fois l'ID réel de la table source sélectionnée dans Grist.
+        // Cet ID sert ensuite à choisir le bon profil de configuration.
+        async function ensureMainTableId() {
+            if (_mainTableId) return _mainTableId;
+            try { _mainTableId = await grist.selectedTable.getTableId(); } catch(e) {}
+            if (_mainTableId) TABLE.tasks = _mainTableId;
+            return _mainTableId;
+        }
+
+        // Détecte l'ancien format de configuration, où les options étaient stockées
+        // directement à la racine de l'objet Grist.
+        function isFlatConfigOptions(options) {
+            return !!(options && typeof options === 'object' &&
+                CONFIG_OPTION_KEYS.some(k => Object.prototype.hasOwnProperty.call(options, k)));
+        }
+
+        // Détecte le nouveau format, dans lequel chaque table source possède
+        // son propre profil dans options.profiles.
+        function isProfiledOptions(options) {
+            return !!(options && typeof options === 'object' && options.profiles &&
+                typeof options.profiles === 'object');
+        }
+
+        // Extrait la configuration qui correspond à la table source courante.
+        // Si l'ancien format plat est reçu, il est accepté pour garder la compatibilité.
+        function getProfileOptions(options) {
+            if (isProfiledOptions(options)) {
+                return options.profiles[getStorageScope()] || null;
+            }
+            return isFlatConfigOptions(options) ? options : null;
+        }
+
+        // Prépare le conteneur d'options avant sauvegarde dans Grist.
+        // Les profils existants sont conservés, puis seul le profil courant est remplacé.
+        function normalizeOptionsContainer(options) {
+            if (isProfiledOptions(options)) {
+                return {
+                    ...options,
+                    _ganttConfigVersion: options._ganttConfigVersion || PROFILED_OPTIONS_VERSION,
+                    profiles: { ...options.profiles }
+                };
+            }
+            return {
+                _ganttConfigVersion: PROFILED_OPTIONS_VERSION,
+                profiles: {}
+            };
+        }
+
+        // Lit les options actuellement persistées par Grist sans interrompre le widget
+        // si l'appel échoue ou retourne null.
+        async function getCurrentGristOptions() {
+            try { return await grist.getOptions(); } catch(e) { return null; }
+        }
+
+        // Sauvegarde une copie locale de secours du profil courant.
+        // La clé est scopée par table source, contrairement à l'ancien cache global.
+        function lsSaveOptions(options) {
+            try { localStorage.setItem(getScopedStorageKey('gantt_config'), JSON.stringify(options)); } catch(e) {}
+        }
+
+        // Recharge la copie locale du profil courant quand Grist ne renvoie pas d'options.
         function lsLoadOptions() {
-            try { const v = localStorage.getItem(LS_KEY); return v ? JSON.parse(v) : null; } catch(e) { return null; }
+            try {
+                const v = localStorage.getItem(getScopedStorageKey('gantt_config'));
+                return v ? JSON.parse(v) : null;
+            } catch(e) { return null; }
         }
 
         async function initGrist() {
@@ -4419,8 +4504,7 @@
                     // Capturer le vrai ID Grist de la table principale (une seule fois suffit)
                     if (_firstOnRecords) {
                         _firstOnRecords = false;
-                        try { _mainTableId = await grist.selectedTable.getTableId(); } catch(e) {}
-                        if (_mainTableId) TABLE.tasks = _mainTableId;
+                        await ensureMainTableId();
                     }
                     applyMappings(mappings);
                     clearTimeout(_onRecordsDebounceTimer);
@@ -4469,29 +4553,40 @@
                         }
                         // Dernier recours : localStorage (propre au navigateur local)
                         if (!opts) {
+                            await ensureMainTableId();
                             opts = lsLoadOptions();
                             console.log('[GANTT] localStorage fallback:', JSON.stringify(opts));
                         }
 
-                        console.log('[GANTT] opts final utilisé:', JSON.stringify(opts));
-                        const hasConfig = opts && (
-                            opts.tableChefProjet || opts.tableOperations || opts.tablePhases
+                        // À partir d'ici, on ne travaille plus avec l'objet global des options :
+                        // on extrait uniquement le profil correspondant à la table source active.
+                        await ensureMainTableId();
+                        let scopedOpts = getProfileOptions(opts);
+                        if (!scopedOpts || isFlatConfigOptions(opts)) {
+                            // Si les options Grist sont absentes ou encore dans l'ancien format,
+                            // on préfère la copie locale propre à cette table source.
+                            const cachedOpts = lsLoadOptions();
+                            if (cachedOpts) scopedOpts = cachedOpts;
+                        }
+                        console.log('[GANTT] opts final utilisé:', JSON.stringify(scopedOpts));
+                        const hasConfig = scopedOpts && (
+                            scopedOpts.tableChefProjet || scopedOpts.tableOperations || scopedOpts.tablePhases
                         );
                         console.log('[GANTT] hasConfig:', hasConfig,
-                            '| tableChefProjet:', opts?.tableChefProjet,
-                            '| tableOperations:', opts?.tableOperations,
-                            '| tablePhases:', opts?.tablePhases);
+                            '| tableChefProjet:', scopedOpts?.tableChefProjet,
+                            '| tableOperations:', scopedOpts?.tableOperations,
+                            '| tablePhases:', scopedOpts?.tablePhases);
 
                         if (hasConfig) {
-                            applyOptions(opts);
+                            applyOptions(scopedOpts);
                             // Mettre à jour le cache local pour les appels suivants
-                            lsSaveOptions(opts);
+                            lsSaveOptions(scopedOpts);
                             console.log('[GANTT] après applyOptions initial, TABLE.responsableProjet=', TABLE.responsableProjet, 'TABLE.phases=', TABLE.phases);
                         }
                         // Débloquer onRecords dans tous les cas
                         resolveOptionsReady();
                         // Vérifier / créer le schéma si nécessaire
-                        await ensureSchema(opts);
+                        await ensureSchema(scopedOpts);
 
                         // Ne pas ouvrir le panel de config automatiquement :
                         // loadSecondaryData() l'ouvrira si une table/colonne est introuvable.
@@ -4508,9 +4603,23 @@
                                 console.log('[GANTT] getOptions() fallback suivant:', JSON.stringify(options));
                             } catch(e) {}
                         }
-                        if (!options) options = lsLoadOptions();
-                        console.log('[GANTT] onOptions suivant — retenu:', JSON.stringify(options));
-                        if (options) applyOptions(options);
+                        if (!options) {
+                            await ensureMainTableId();
+                            options = lsLoadOptions();
+                        }
+                        // Même logique que pour le premier chargement : un changement live
+                        // d'options doit appliquer seulement le profil de cette table source.
+                        await ensureMainTableId();
+                        let scopedOptions = getProfileOptions(options);
+                        if (!scopedOptions || isFlatConfigOptions(options)) {
+                            const cachedOptions = lsLoadOptions();
+                            if (cachedOptions) scopedOptions = cachedOptions;
+                        }
+                        console.log('[GANTT] onOptions suivant — retenu:', JSON.stringify(scopedOptions));
+                        if (scopedOptions) {
+                            applyOptions(scopedOptions);
+                            lsSaveOptions(scopedOptions);
+                        }
                         await loadAllData();
                     }
                 });
@@ -4731,9 +4840,16 @@
             // Persister dans Grist si disponible
             if (gristReady) {
                 try {
-                    console.log('[GANTT] setOptions appelé avec:', JSON.stringify(options));
+                    await ensureMainTableId();
+                    // Les options Grist sont partagées au niveau du widget/document.
+                    // On conserve donc tous les profils et on remplace seulement celui
+                    // de la table source courante.
+                    const allOptions = normalizeOptionsContainer(await getCurrentGristOptions());
+                    allOptions.profiles[getStorageScope()] = options;
+                    allOptions._configured = true;
+                    console.log('[GANTT] setOptions appelé avec:', JSON.stringify(allOptions));
                     lsSaveOptions(options);  // cache local en cas d'effacement par Grist
-                    await grist.setOptions(options);
+                    await grist.setOptions(allOptions);
                     console.log('[GANTT] setOptions OK');
                     showToast('Configuration enregistrée', 'success');
                     document.getElementById('missingColsBanner')?.classList.remove('visible');
