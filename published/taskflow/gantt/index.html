@@ -4411,18 +4411,6 @@
             }
             return isFlatConfigOptions(options) ? options : null;
         }
-k
-        // Résout le profil à appliquer pour la table source courante.
-        // Le cache local reste prioritaire si Grist ne fournit pas de profil exploitable
-        // ou si les options Grist sont encore dans l'ancien format plat.
-        function resolveScopedOptions(options) {
-            let scopedOptions = getProfileOptions(options);
-            if (!scopedOptions || isFlatConfigOptions(options)) {
-                const cachedOptions = lsLoadOptions();
-                if (cachedOptions) scopedOptions = cachedOptions;
-            }
-            return scopedOptions;
-        }
 
         // Prépare le conteneur d'options avant sauvegarde dans Grist.
         // Les profils existants sont conservés, puis seul le profil courant est remplacé.
@@ -4502,6 +4490,7 @@ k
                 };
 
                 // ── Coordination onRecords / onOptions ─────────────────────────────────
+                // DIAGNOSTIC CONFIRMÉ : grist.getOptions() retourne NULL lors d'un Ctrl+Shift+R.
                 // Les vraies options persistées n'arrivent QUE via onOptions (premier appel).
                 // Stratégie : onRecords attend onOptions sans timeout — onOptions arrive TOUJOURS.
                 let resolveOptionsReady;
@@ -4572,7 +4561,13 @@ k
                         // À partir d'ici, on ne travaille plus avec l'objet global des options :
                         // on extrait uniquement le profil correspondant à la table source active.
                         await ensureMainTableId();
-                        const scopedOpts = resolveScopedOptions(opts);
+                        let scopedOpts = getProfileOptions(opts);
+                        if (!scopedOpts || isFlatConfigOptions(opts)) {
+                            // Si les options Grist sont absentes ou encore dans l'ancien format,
+                            // on préfère la copie locale propre à cette table source.
+                            const cachedOpts = lsLoadOptions();
+                            if (cachedOpts) scopedOpts = cachedOpts;
+                        }
                         console.log('[GANTT] opts final utilisé:', JSON.stringify(scopedOpts));
                         const hasConfig = scopedOpts && (
                             scopedOpts.tableChefProjet || scopedOpts.tableOperations || scopedOpts.tablePhases
@@ -4615,7 +4610,11 @@ k
                         // Même logique que pour le premier chargement : un changement live
                         // d'options doit appliquer seulement le profil de cette table source.
                         await ensureMainTableId();
-                        const scopedOptions = resolveScopedOptions(options);
+                        let scopedOptions = getProfileOptions(options);
+                        if (!scopedOptions || isFlatConfigOptions(options)) {
+                            const cachedOptions = lsLoadOptions();
+                            if (cachedOptions) scopedOptions = cachedOptions;
+                        }
                         console.log('[GANTT] onOptions suivant — retenu:', JSON.stringify(scopedOptions));
                         if (scopedOptions) {
                             applyOptions(scopedOptions);
