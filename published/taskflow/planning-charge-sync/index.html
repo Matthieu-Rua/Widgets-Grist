@@ -121,6 +121,7 @@
     <h1>Synchronisation charge planning</h1>
     <p class="hint">
       Génère une ligne par mois, responsable et opération dans la table de charge.
+      Complète aussi les mois sans opération avec des lignes techniques à zéro.
       Les lignes existantes de la table cible sont supprimées avant régénération.
     </p>
 
@@ -155,6 +156,9 @@
       <label>Colonne cible phase source
         <input id="dstSourcePhase" value="Source_Phase">
       </label>
+      <label>Colonne cible type ligne
+        <input id="dstLineType" value="Type_Ligne">
+      </label>
     </div>
 
     <div class="actions">
@@ -169,7 +173,7 @@
     const FIELD_IDS = [
       'sourceTable', 'targetTable',
       'srcOperation', 'srcResponsables', 'srcStart', 'srcEnd',
-      'dstMonth', 'dstPerson', 'dstOperation', 'dstSourcePhase'
+      'dstMonth', 'dstPerson', 'dstOperation', 'dstSourcePhase', 'dstLineType'
     ];
 
     function setStatus(message, type) {
@@ -242,6 +246,10 @@
       return Math.floor(date.getTime() / 1000);
     }
 
+    function monthKey(date) {
+      return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
+    }
+
     function monthStartsBetween(start, end) {
       const months = [];
       const current = toMonthDate(start);
@@ -251,6 +259,35 @@
         current.setMonth(current.getMonth() + 1);
       }
       return months;
+    }
+
+    function buildFullMonthRange(monthDates) {
+      if (!monthDates.length) return [];
+
+      const sorted = monthDates
+        .map(date => toMonthDate(date))
+        .sort((a, b) => a.getTime() - b.getTime());
+
+      return monthStartsBetween(sorted[0], sorted[sorted.length - 1]);
+    }
+
+    function addZeroRows(rows, cfg, personIds, monthDates, occupiedPersonMonths) {
+      const allMonths = buildFullMonthRange(monthDates);
+
+      personIds.forEach(personId => {
+        allMonths.forEach(month => {
+          const key = personId + '|' + monthKey(month);
+          if (occupiedPersonMonths.has(key)) return;
+
+          rows.push({
+            [cfg.dstMonth]: toGristDate(month),
+            [cfg.dstPerson]: personId,
+            [cfg.dstOperation]: null,
+            [cfg.dstSourcePhase]: null,
+            [cfg.dstLineType]: 'zero'
+          });
+        });
+      });
     }
 
     async function clearTargetTable(tableName) {
@@ -290,6 +327,9 @@
         const phases = convertTable(phaseData);
         const rows = [];
         const seen = new Set();
+        const personIdsForGraph = new Set();
+        const monthsForGraph = [];
+        const occupiedPersonMonths = new Set();
         let skipped = 0;
 
         phases.forEach(phase => {
@@ -308,15 +348,23 @@
               const key = [phase.id, operationId, personId, month.getFullYear(), month.getMonth()].join('|');
               if (seen.has(key)) return;
               seen.add(key);
+              personIdsForGraph.add(personId);
+              monthsForGraph.push(month);
+              occupiedPersonMonths.add(personId + '|' + monthKey(month));
               rows.push({
                 [cfg.dstMonth]: toGristDate(month),
                 [cfg.dstPerson]: personId,
                 [cfg.dstOperation]: operationId,
-                [cfg.dstSourcePhase]: phase.id
+                [cfg.dstSourcePhase]: phase.id,
+                [cfg.dstLineType]: 'operation'
               });
             });
           });
         });
+
+        const operationRowsCount = rows.length;
+        addZeroRows(rows, cfg, personIdsForGraph, monthsForGraph, occupiedPersonMonths);
+        const zeroRowsCount = rows.length - operationRowsCount;
 
         const removed = await clearTargetTable(cfg.targetTable);
         await addRows(cfg.targetTable, rows);
@@ -325,7 +373,9 @@
         setStatus(
           'Synchronisation terminée.\n' +
           'Lignes supprimées : ' + removed + '\n' +
-          'Lignes générées : ' + rows.length + '\n' +
+          'Lignes operation générées : ' + operationRowsCount + '\n' +
+          'Lignes zero générées : ' + zeroRowsCount + '\n' +
+          'Total lignes générées : ' + rows.length + '\n' +
           'Phases ignorées faute de données complètes : ' + skipped,
           'success'
         );
