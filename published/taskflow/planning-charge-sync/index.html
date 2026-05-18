@@ -121,7 +121,7 @@
     <h1>Synchronisation charge planning</h1>
     <p class="hint">
       Génère une ligne par mois, responsable et opération dans la table de charge.
-      Complète aussi les mois sans opération avec des lignes techniques à zéro.
+      Complète aussi la table avec une ligne graphique interpolée par mois et responsable.
       Les lignes existantes de la table cible sont supprimées avant régénération.
     </p>
 
@@ -159,6 +159,9 @@
       <label>Colonne cible type ligne
         <input id="dstLineType" value="Type_Ligne">
       </label>
+      <label>Colonne cible valeur graphique
+        <input id="dstGraphValue" value="Nb_Ope_Graph">
+      </label>
     </div>
 
     <div class="actions">
@@ -173,7 +176,7 @@
     const FIELD_IDS = [
       'sourceTable', 'targetTable',
       'srcOperation', 'srcResponsables', 'srcStart', 'srcEnd',
-      'dstMonth', 'dstPerson', 'dstOperation', 'dstSourcePhase', 'dstLineType'
+      'dstMonth', 'dstPerson', 'dstOperation', 'dstSourcePhase', 'dstLineType', 'dstGraphValue'
     ];
 
     function setStatus(message, type) {
@@ -250,6 +253,10 @@
       return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
     }
 
+    function monthIndex(date) {
+      return date.getFullYear() * 12 + date.getMonth();
+    }
+
     function monthStartsBetween(start, end) {
       const months = [];
       const current = toMonthDate(start);
@@ -271,20 +278,57 @@
       return monthStartsBetween(sorted[0], sorted[sorted.length - 1]);
     }
 
-    function addZeroRows(rows, cfg, personIds, monthDates, occupiedPersonMonths) {
+    function rememberOperation(operationSetsByPersonMonth, personId, month, operationId) {
+      const key = personId + '|' + monthKey(month);
+      if (!operationSetsByPersonMonth.has(key)) {
+        operationSetsByPersonMonth.set(key, new Set());
+      }
+      operationSetsByPersonMonth.get(key).add(operationId);
+    }
+
+    function interpolateGraphValue(month, knownPoints, operationSetsByPersonMonth, personId) {
+      const key = personId + '|' + monthKey(month);
+      const actualOperations = operationSetsByPersonMonth.get(key);
+      if (actualOperations) return actualOperations.size;
+
+      const currentIndex = monthIndex(month);
+      let previous = null;
+      let next = null;
+
+      for (const point of knownPoints) {
+        if (point.index < currentIndex) previous = point;
+        if (point.index > currentIndex) {
+          next = point;
+          break;
+        }
+      }
+
+      if (!previous || !next) return 0;
+
+      const distance = next.index - previous.index;
+      const progress = (currentIndex - previous.index) / distance;
+      return previous.value + (next.value - previous.value) * progress;
+    }
+
+    function addGraphRows(rows, cfg, personIds, monthDates, operationSetsByPersonMonth) {
       const allMonths = buildFullMonthRange(monthDates);
 
       personIds.forEach(personId => {
-        allMonths.forEach(month => {
-          const key = personId + '|' + monthKey(month);
-          if (occupiedPersonMonths.has(key)) return;
+        const knownPoints = allMonths
+          .map(month => {
+            const operations = operationSetsByPersonMonth.get(personId + '|' + monthKey(month));
+            return operations ? { index: monthIndex(month), value: operations.size } : null;
+          })
+          .filter(Boolean);
 
+        allMonths.forEach(month => {
           rows.push({
             [cfg.dstMonth]: toGristDate(month),
             [cfg.dstPerson]: personId,
             [cfg.dstOperation]: null,
             [cfg.dstSourcePhase]: null,
-            [cfg.dstLineType]: 'zero'
+            [cfg.dstLineType]: 'graph',
+            [cfg.dstGraphValue]: interpolateGraphValue(month, knownPoints, operationSetsByPersonMonth, personId)
           });
         });
       });
@@ -329,7 +373,7 @@
         const seen = new Set();
         const personIdsForGraph = new Set();
         const monthsForGraph = [];
-        const occupiedPersonMonths = new Set();
+        const operationSetsByPersonMonth = new Map();
         let skipped = 0;
 
         phases.forEach(phase => {
@@ -350,21 +394,22 @@
               seen.add(key);
               personIdsForGraph.add(personId);
               monthsForGraph.push(month);
-              occupiedPersonMonths.add(personId + '|' + monthKey(month));
+              rememberOperation(operationSetsByPersonMonth, personId, month, operationId);
               rows.push({
                 [cfg.dstMonth]: toGristDate(month),
                 [cfg.dstPerson]: personId,
                 [cfg.dstOperation]: operationId,
                 [cfg.dstSourcePhase]: phase.id,
-                [cfg.dstLineType]: 'operation'
+                [cfg.dstLineType]: 'operation',
+                [cfg.dstGraphValue]: null
               });
             });
           });
         });
 
         const operationRowsCount = rows.length;
-        addZeroRows(rows, cfg, personIdsForGraph, monthsForGraph, occupiedPersonMonths);
-        const zeroRowsCount = rows.length - operationRowsCount;
+        addGraphRows(rows, cfg, personIdsForGraph, monthsForGraph, operationSetsByPersonMonth);
+        const graphRowsCount = rows.length - operationRowsCount;
 
         const removed = await clearTargetTable(cfg.targetTable);
         await addRows(cfg.targetTable, rows);
@@ -374,7 +419,7 @@
           'Synchronisation terminée.\n' +
           'Lignes supprimées : ' + removed + '\n' +
           'Lignes operation générées : ' + operationRowsCount + '\n' +
-          'Lignes zero générées : ' + zeroRowsCount + '\n' +
+          'Lignes graph générées : ' + graphRowsCount + '\n' +
           'Total lignes générées : ' + rows.length + '\n' +
           'Phases ignorées faute de données complètes : ' + skipped,
           'success'
