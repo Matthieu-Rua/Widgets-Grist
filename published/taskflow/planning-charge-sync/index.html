@@ -257,6 +257,10 @@
       return date.getFullYear() * 12 + date.getMonth();
     }
 
+    function graphKey(personId, month) {
+      return String(personId) + '|' + monthKey(month);
+    }
+
     function monthStartsBetween(start, end) {
       const months = [];
       const current = toMonthDate(start);
@@ -279,7 +283,7 @@
     }
 
     function rememberOperation(operationSetsByPersonMonth, personId, month, operationId) {
-      const key = personId + '|' + monthKey(month);
+      const key = graphKey(personId, month);
       if (!operationSetsByPersonMonth.has(key)) {
         operationSetsByPersonMonth.set(key, new Set());
       }
@@ -287,7 +291,7 @@
     }
 
     function interpolateGraphValue(month, knownPoints, operationSetsByPersonMonth, personId) {
-      const key = personId + '|' + monthKey(month);
+      const key = graphKey(personId, month);
       const actualOperations = operationSetsByPersonMonth.get(key);
       if (actualOperations) return actualOperations.size;
 
@@ -307,31 +311,42 @@
 
       const distance = next.index - previous.index;
       const progress = (currentIndex - previous.index) / distance;
-      return previous.value + (next.value - previous.value) * progress;
+      return Number((previous.value + (next.value - previous.value) * progress).toFixed(4));
     }
 
     function addGraphRows(rows, cfg, personIds, monthDates, operationSetsByPersonMonth) {
       const allMonths = buildFullMonthRange(monthDates);
+      const values = [];
 
       personIds.forEach(personId => {
         const knownPoints = allMonths
           .map(month => {
-            const operations = operationSetsByPersonMonth.get(personId + '|' + monthKey(month));
+            const operations = operationSetsByPersonMonth.get(graphKey(personId, month));
             return operations ? { index: monthIndex(month), value: operations.size } : null;
           })
           .filter(Boolean);
 
         allMonths.forEach(month => {
+          const graphValue = interpolateGraphValue(month, knownPoints, operationSetsByPersonMonth, personId);
+          values.push(graphValue);
+
           rows.push({
             [cfg.dstMonth]: toGristDate(month),
             [cfg.dstPerson]: personId,
             [cfg.dstOperation]: null,
             [cfg.dstSourcePhase]: null,
             [cfg.dstLineType]: 'graph',
-            [cfg.dstGraphValue]: interpolateGraphValue(month, knownPoints, operationSetsByPersonMonth, personId)
+            [cfg.dstGraphValue]: graphValue
           });
         });
       });
+
+      return {
+        count: values.length,
+        min: values.length ? Math.min(...values) : 0,
+        max: values.length ? Math.max(...values) : 0,
+        nonZero: values.filter(value => value !== 0).length
+      };
     }
 
     async function clearTargetTable(tableName) {
@@ -408,7 +423,7 @@
         });
 
         const operationRowsCount = rows.length;
-        addGraphRows(rows, cfg, personIdsForGraph, monthsForGraph, operationSetsByPersonMonth);
+        const graphStats = addGraphRows(rows, cfg, personIdsForGraph, monthsForGraph, operationSetsByPersonMonth);
         const graphRowsCount = rows.length - operationRowsCount;
 
         const removed = await clearTargetTable(cfg.targetTable);
@@ -420,6 +435,8 @@
           'Lignes supprimées : ' + removed + '\n' +
           'Lignes operation générées : ' + operationRowsCount + '\n' +
           'Lignes graph générées : ' + graphRowsCount + '\n' +
+          'Valeurs graph non nulles : ' + graphStats.nonZero + '\n' +
+          'Min/Max graph : ' + graphStats.min + ' / ' + graphStats.max + '\n' +
           'Total lignes générées : ' + rows.length + '\n' +
           'Phases ignorées faute de données complètes : ' + skipped,
           'success'
