@@ -122,6 +122,7 @@
     <p class="hint">
       Génère une ligne par mois, responsable et opération dans la table de charge.
       Complète aussi la table avec une ligne graphique interpolée par mois et responsable.
+      Ajoute enfin des lignes 0/1 par opération pour les graphiques en aires.
       Les lignes existantes de la table cible sont supprimées avant régénération.
     </p>
 
@@ -162,6 +163,9 @@
       <label>Colonne cible valeur graphique
         <input id="dstGraphValue" value="Nb_Ope_Graph">
       </label>
+      <label>Colonne cible valeur opération
+        <input id="dstOperationValue" value="Valeur_Operation">
+      </label>
     </div>
 
     <div class="actions">
@@ -176,7 +180,8 @@
     const FIELD_IDS = [
       'sourceTable', 'targetTable',
       'srcOperation', 'srcResponsables', 'srcStart', 'srcEnd',
-      'dstMonth', 'dstPerson', 'dstOperation', 'dstSourcePhase', 'dstLineType', 'dstGraphValue'
+      'dstMonth', 'dstPerson', 'dstOperation', 'dstSourcePhase', 'dstLineType',
+      'dstGraphValue', 'dstOperationValue'
     ];
 
     function setStatus(message, type) {
@@ -261,6 +266,10 @@
       return String(personId) + '|' + monthKey(month);
     }
 
+    function operationAreaKey(personId, operationId, month) {
+      return String(personId) + '|' + String(operationId) + '|' + monthKey(month);
+    }
+
     function monthStartsBetween(start, end) {
       const months = [];
       const current = toMonthDate(start);
@@ -288,6 +297,14 @@
         operationSetsByPersonMonth.set(key, new Set());
       }
       operationSetsByPersonMonth.get(key).add(operationId);
+    }
+
+    function rememberPersonOperation(personOperations, personId, operationId) {
+      const key = String(personId);
+      if (!personOperations.has(key)) {
+        personOperations.set(key, new Set());
+      }
+      personOperations.get(key).add(operationId);
     }
 
     function interpolateGraphValue(month, knownPoints, operationSetsByPersonMonth, personId) {
@@ -336,7 +353,8 @@
             [cfg.dstOperation]: null,
             [cfg.dstSourcePhase]: null,
             [cfg.dstLineType]: 'graph',
-            [cfg.dstGraphValue]: graphValue
+            [cfg.dstGraphValue]: graphValue,
+            [cfg.dstOperationValue]: 0
           });
         });
       });
@@ -346,6 +364,38 @@
         min: values.length ? Math.min(...values) : 0,
         max: values.length ? Math.max(...values) : 0,
         nonZero: values.filter(value => value !== 0).length
+      };
+    }
+
+    function addOperationAreaRows(rows, cfg, personOperations, monthDates, activeOperationMonths) {
+      const allMonths = buildFullMonthRange(monthDates);
+      let activeCount = 0;
+      let inactiveCount = 0;
+
+      personOperations.forEach((operationIds, personId) => {
+        operationIds.forEach(operationId => {
+          allMonths.forEach(month => {
+            const active = activeOperationMonths.has(operationAreaKey(personId, operationId, month));
+            if (active) activeCount++;
+            else inactiveCount++;
+
+            rows.push({
+              [cfg.dstMonth]: toGristDate(month),
+              [cfg.dstPerson]: Number(personId),
+              [cfg.dstOperation]: operationId,
+              [cfg.dstSourcePhase]: null,
+              [cfg.dstLineType]: 'operation_area',
+              [cfg.dstGraphValue]: null,
+              [cfg.dstOperationValue]: active ? 1 : 0
+            });
+          });
+        });
+      });
+
+      return {
+        active: activeCount,
+        inactive: inactiveCount,
+        total: activeCount + inactiveCount
       };
     }
 
@@ -389,6 +439,8 @@
         const personIdsForGraph = new Set();
         const monthsForGraph = [];
         const operationSetsByPersonMonth = new Map();
+        const personOperations = new Map();
+        const activeOperationMonths = new Set();
         let skipped = 0;
 
         phases.forEach(phase => {
@@ -410,13 +462,16 @@
               personIdsForGraph.add(personId);
               monthsForGraph.push(month);
               rememberOperation(operationSetsByPersonMonth, personId, month, operationId);
+              rememberPersonOperation(personOperations, personId, operationId);
+              activeOperationMonths.add(operationAreaKey(personId, operationId, month));
               rows.push({
                 [cfg.dstMonth]: toGristDate(month),
                 [cfg.dstPerson]: personId,
                 [cfg.dstOperation]: operationId,
                 [cfg.dstSourcePhase]: phase.id,
                 [cfg.dstLineType]: 'operation',
-                [cfg.dstGraphValue]: null
+                [cfg.dstGraphValue]: null,
+                [cfg.dstOperationValue]: 1
               });
             });
           });
@@ -425,6 +480,7 @@
         const operationRowsCount = rows.length;
         const graphStats = addGraphRows(rows, cfg, personIdsForGraph, monthsForGraph, operationSetsByPersonMonth);
         const graphRowsCount = rows.length - operationRowsCount;
+        const areaStats = addOperationAreaRows(rows, cfg, personOperations, monthsForGraph, activeOperationMonths);
 
         const removed = await clearTargetTable(cfg.targetTable);
         await addRows(cfg.targetTable, rows);
@@ -435,6 +491,8 @@
           'Lignes supprimées : ' + removed + '\n' +
           'Lignes operation générées : ' + operationRowsCount + '\n' +
           'Lignes graph générées : ' + graphRowsCount + '\n' +
+          'Lignes operation_area générées : ' + areaStats.total + '\n' +
+          'Operation_area actives/inactives : ' + areaStats.active + ' / ' + areaStats.inactive + '\n' +
           'Valeurs graph non nulles : ' + graphStats.nonZero + '\n' +
           'Min/Max graph : ' + graphStats.min + ' / ' + graphStats.max + '\n' +
           'Total lignes générées : ' + rows.length + '\n' +
