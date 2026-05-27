@@ -4448,7 +4448,12 @@
             } catch(e) { return null; }
         }
 
+        // Table Grist utilisée comme source principale de configuration partagée.
+        // Contrairement au localStorage, ces valeurs sont communes à tous les utilisateurs.
         const GANTT_CONFIG_TABLE = 'DPPI_Gantt_Config';
+
+        // Correspondance entre les noms internes du widget et les colonnes de
+        // DPPI_Gantt_Config. Modifier ces valeurs si le schéma de la table change.
         const GANTT_CONFIG_COLUMNS = {
             sourceTable: 'Source_Table',
             tableChefProjet: 'Table_Responsables',
@@ -4467,10 +4472,14 @@
             active: 'Active'
         };
 
+        // Normalise les booléens venant de Grist, qui peuvent être reçus sous
+        // forme de booléen, nombre ou texte selon le contexte d'appel.
         function gristBool(value) {
             return value === true || value === 1 || value === 'true' || value === 'True';
         }
 
+        // Convertit une ligne du format colonne-par-colonne renvoyé par fetchTable
+        // en objet classique { colonne: valeur } pour simplifier les mappings.
         function configRowFromTable(data, index) {
             const row = {};
             Object.keys(data || {}).forEach(col => {
@@ -4479,6 +4488,8 @@
             return row;
         }
 
+        // Transforme une ligne DPPI_Gantt_Config en objet d'options compris par
+        // le reste du widget (TABLE, COL_CHEF, COL_OPS, COL_PHASES).
         function optionsFromConfigRow(row) {
             if (!row) return null;
             return {
@@ -4500,6 +4511,8 @@
             };
         }
 
+        // Fait l'opération inverse : transforme les options courantes du widget
+        // en valeurs prêtes à être écrites dans DPPI_Gantt_Config.
         function configValuesFromOptions(options) {
             return {
                 [GANTT_CONFIG_COLUMNS.sourceTable]: TABLE.tasks || _mainTableId,
@@ -4520,6 +4533,8 @@
             };
         }
 
+        // Lit DPPI_Gantt_Config et retourne la configuration correspondant à la
+        // table source du widget courant. Une ligne inactive est ignorée.
         async function loadGanttConfigTableOptions() {
             await ensureMainTableId();
             const sourceTable = TABLE.tasks || _mainTableId;
@@ -4544,6 +4559,9 @@
             return null;
         }
 
+        // Sauvegarde le panneau de configuration dans DPPI_Gantt_Config.
+        // Si une ligne existe déjà pour la table source, elle est mise à jour ;
+        // sinon le widget crée une nouvelle ligne de configuration.
         async function saveGanttConfigTableOptions(options) {
             await ensureMainTableId();
             const sourceTable = TABLE.tasks || _mainTableId;
@@ -4865,7 +4883,9 @@
 
             // Exclure la table tâches (table principale, gérée par le panel natif Grist)
             const tasksId = TABLE.tasks || _mainTableId || '';
-            const allTablesFiltered = tasksId ? allTables.filter(t => t !== tasksId) : allTables;
+            const allTablesFiltered = (tasksId ? allTables.filter(t => t !== tasksId) : allTables)
+                .slice()
+                .sort((a, b) => String(a).localeCompare(String(b), 'fr', { sensitivity: 'base' }));
 
             // Valeurs courantes sauvegardées
             const current = {};
@@ -4891,7 +4911,9 @@
             let cols = [];
             try {
                 const data = await grist.docApi.fetchTable(tableName);
-                cols = Object.keys(data).filter(c => c !== 'manualSort' && c !== 'id');
+                cols = Object.keys(data)
+                    .filter(c => c !== 'manualSort' && c !== 'id')
+                    .sort((a, b) => String(a).localeCompare(String(b), 'fr', { sensitivity: 'base' }));
             } catch(e) { return; }
 
             document.querySelectorAll('[data-group="' + group + '"]').forEach(function(sel) {
