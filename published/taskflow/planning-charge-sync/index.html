@@ -120,9 +120,8 @@
   <div class="panel">
     <h1>Synchronisation charge planning</h1>
     <p class="hint">
-      Génère une ligne par mois, responsable et opération dans la table de charge.
-      Complète aussi la table avec une ligne graphique interpolée par mois et responsable.
-      Ajoute enfin des lignes 0/1 par opération pour les graphiques en aires.
+      Génère les lignes graph par mois et responsable.
+      Ajoute aussi des lignes operation_area 0/1 par opération, limitées à la plage utile.
       Les lignes existantes de la table cible sont supprimées avant régénération.
     </p>
 
@@ -262,12 +261,22 @@
       return date.getFullYear() * 12 + date.getMonth();
     }
 
+    function monthFromIndex(index) {
+      const year = Math.floor(index / 12);
+      const month = index - year * 12;
+      return new Date(year, month, 1);
+    }
+
     function graphKey(personId, month) {
       return String(personId) + '|' + monthKey(month);
     }
 
     function operationAreaKey(personId, operationId, month) {
       return String(personId) + '|' + String(operationId) + '|' + monthKey(month);
+    }
+
+    function personOperationKey(personId, operationId) {
+      return String(personId) + '|' + String(operationId);
     }
 
     function monthStartsBetween(start, end) {
@@ -307,6 +316,18 @@
       personOperations.get(key).add(operationId);
     }
 
+    function rememberOperationMonthBounds(operationMonthBounds, personId, operationId, month) {
+      const key = personOperationKey(personId, operationId);
+      const index = monthIndex(month);
+      const current = operationMonthBounds.get(key);
+      if (!current) {
+        operationMonthBounds.set(key, { min: index, max: index });
+        return;
+      }
+      current.min = Math.min(current.min, index);
+      current.max = Math.max(current.max, index);
+    }
+
     function interpolateGraphValue(month, knownPoints, operationSetsByPersonMonth, personId) {
       const key = graphKey(personId, month);
       const actualOperations = operationSetsByPersonMonth.get(key);
@@ -328,7 +349,7 @@
 
       const distance = next.index - previous.index;
       const progress = (currentIndex - previous.index) / distance;
-      return Number((previous.value + (next.value - previous.value) * progress).toFixed(4));
+      return Math.round(previous.value + (next.value - previous.value) * progress);
     }
 
     function addGraphRows(rows, cfg, personIds, monthDates, operationSetsByPersonMonth) {
@@ -367,14 +388,17 @@
       };
     }
 
-    function addOperationAreaRows(rows, cfg, personOperations, monthDates, activeOperationMonths) {
-      const allMonths = buildFullMonthRange(monthDates);
+    function addOperationAreaRows(rows, cfg, personOperations, operationMonthBounds, activeOperationMonths) {
       let activeCount = 0;
       let inactiveCount = 0;
 
       personOperations.forEach((operationIds, personId) => {
         operationIds.forEach(operationId => {
-          allMonths.forEach(month => {
+          const bounds = operationMonthBounds.get(personOperationKey(personId, operationId));
+          if (!bounds) return;
+
+          for (let index = bounds.min - 1; index <= bounds.max + 1; index++) {
+            const month = monthFromIndex(index);
             const active = activeOperationMonths.has(operationAreaKey(personId, operationId, month));
             if (active) activeCount++;
             else inactiveCount++;
@@ -388,7 +412,7 @@
               [cfg.dstGraphValue]: null,
               [cfg.dstOperationValue]: active ? 1 : 0
             });
-          });
+          }
         });
       });
 
@@ -441,6 +465,7 @@
         const operationSetsByPersonMonth = new Map();
         const personOperations = new Map();
         const activeOperationMonths = new Set();
+        const operationMonthBounds = new Map();
         let skipped = 0;
 
         phases.forEach(phase => {
@@ -464,23 +489,14 @@
               rememberOperation(operationSetsByPersonMonth, personId, month, operationId);
               rememberPersonOperation(personOperations, personId, operationId);
               activeOperationMonths.add(operationAreaKey(personId, operationId, month));
-              rows.push({
-                [cfg.dstMonth]: toGristDate(month),
-                [cfg.dstPerson]: personId,
-                [cfg.dstOperation]: operationId,
-                [cfg.dstSourcePhase]: phase.id,
-                [cfg.dstLineType]: 'operation',
-                [cfg.dstGraphValue]: null,
-                [cfg.dstOperationValue]: 1
-              });
+              rememberOperationMonthBounds(operationMonthBounds, personId, operationId, month);
             });
           });
         });
 
-        const operationRowsCount = rows.length;
         const graphStats = addGraphRows(rows, cfg, personIdsForGraph, monthsForGraph, operationSetsByPersonMonth);
-        const graphRowsCount = rows.length - operationRowsCount;
-        const areaStats = addOperationAreaRows(rows, cfg, personOperations, monthsForGraph, activeOperationMonths);
+        const graphRowsCount = graphStats.count;
+        const areaStats = addOperationAreaRows(rows, cfg, personOperations, operationMonthBounds, activeOperationMonths);
 
         const removed = await clearTargetTable(cfg.targetTable);
         await addRows(cfg.targetTable, rows);
@@ -489,7 +505,6 @@
         setStatus(
           'Synchronisation terminée.\n' +
           'Lignes supprimées : ' + removed + '\n' +
-          'Lignes operation générées : ' + operationRowsCount + '\n' +
           'Lignes graph générées : ' + graphRowsCount + '\n' +
           'Lignes operation_area générées : ' + areaStats.total + '\n' +
           'Operation_area actives/inactives : ' + areaStats.active + ' / ' + areaStats.inactive + '\n' +
