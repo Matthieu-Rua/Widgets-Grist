@@ -271,8 +271,8 @@
       return String(personId) + '|' + monthKey(month);
     }
 
-    function operationAreaKey(personId, operationId, month) {
-      return String(personId) + '|' + String(operationId) + '|' + monthKey(month);
+    function operationAreaIndexKey(personId, operationId, index) {
+      return String(personId) + '|' + String(operationId) + '|' + String(index);
     }
 
     function personOperationKey(personId, operationId) {
@@ -326,6 +326,26 @@
       }
       current.min = Math.min(current.min, index);
       current.max = Math.max(current.max, index);
+    }
+
+    function rememberActiveOperationValue(activeOperationValues, personId, operationId, month, value) {
+      const key = operationAreaIndexKey(personId, operationId, monthIndex(month));
+      const current = activeOperationValues.get(key);
+      activeOperationValues.set(key, current == null ? value : Math.max(current, value));
+    }
+
+    function operationAreaValue(activeOperationValues, personId, operationId, index) {
+      const currentKey = operationAreaIndexKey(personId, operationId, index);
+      const current = activeOperationValues.get(currentKey);
+      if (current != null) return { value: current, smoothed: false };
+
+      const previous = activeOperationValues.get(operationAreaIndexKey(personId, operationId, index - 1));
+      const next = activeOperationValues.get(operationAreaIndexKey(personId, operationId, index + 1));
+      if (previous != null && next != null) {
+        return { value: (previous + next) / 2, smoothed: true };
+      }
+
+      return { value: 0, smoothed: false };
     }
 
     function interpolateGraphValue(month, knownPoints, operationSetsByPersonMonth, personId) {
@@ -388,9 +408,10 @@
       };
     }
 
-    function addOperationAreaRows(rows, cfg, personOperations, operationMonthBounds, activeOperationMonths) {
+    function addOperationAreaRows(rows, cfg, personOperations, operationMonthBounds, activeOperationValues) {
       let activeCount = 0;
       let inactiveCount = 0;
+      let smoothedCount = 0;
 
       personOperations.forEach((operationIds, personId) => {
         operationIds.forEach(operationId => {
@@ -399,9 +420,10 @@
 
           for (let index = bounds.min - 1; index <= bounds.max + 1; index++) {
             const month = monthFromIndex(index);
-            const active = activeOperationMonths.has(operationAreaKey(personId, operationId, month));
-            if (active) activeCount++;
+            const area = operationAreaValue(activeOperationValues, personId, operationId, index);
+            if (area.value) activeCount++;
             else inactiveCount++;
+            if (area.smoothed) smoothedCount++;
 
             rows.push({
               [cfg.dstMonth]: toGristDate(month),
@@ -410,7 +432,7 @@
               [cfg.dstSourcePhase]: null,
               [cfg.dstLineType]: 'operation_area',
               [cfg.dstGraphValue]: null,
-              [cfg.dstOperationValue]: active ? 1 : 0
+              [cfg.dstOperationValue]: area.value
             });
           }
         });
@@ -419,6 +441,7 @@
       return {
         active: activeCount,
         inactive: inactiveCount,
+        smoothed: smoothedCount,
         total: activeCount + inactiveCount
       };
     }
@@ -464,7 +487,7 @@
         const monthsForGraph = [];
         const operationSetsByPersonMonth = new Map();
         const personOperations = new Map();
-        const activeOperationMonths = new Set();
+        const activeOperationValues = new Map();
         const operationMonthBounds = new Map();
         let skipped = 0;
 
@@ -488,7 +511,7 @@
               monthsForGraph.push(month);
               rememberOperation(operationSetsByPersonMonth, personId, month, operationId);
               rememberPersonOperation(personOperations, personId, operationId);
-              activeOperationMonths.add(operationAreaKey(personId, operationId, month));
+              rememberActiveOperationValue(activeOperationValues, personId, operationId, month, 1);
               rememberOperationMonthBounds(operationMonthBounds, personId, operationId, month);
             });
           });
@@ -496,7 +519,7 @@
 
         const graphStats = addGraphRows(rows, cfg, personIdsForGraph, monthsForGraph, operationSetsByPersonMonth);
         const graphRowsCount = graphStats.count;
-        const areaStats = addOperationAreaRows(rows, cfg, personOperations, operationMonthBounds, activeOperationMonths);
+        const areaStats = addOperationAreaRows(rows, cfg, personOperations, operationMonthBounds, activeOperationValues);
 
         const removed = await clearTargetTable(cfg.targetTable);
         await addRows(cfg.targetTable, rows);
@@ -508,6 +531,7 @@
           'Lignes graph générées : ' + graphRowsCount + '\n' +
           'Lignes operation_area générées : ' + areaStats.total + '\n' +
           'Operation_area actives/inactives : ' + areaStats.active + ' / ' + areaStats.inactive + '\n' +
+          'Trous operation_area lissés : ' + areaStats.smoothed + '\n' +
           'Valeurs graph non nulles : ' + graphStats.nonZero + '\n' +
           'Min/Max graph : ' + graphStats.min + ' / ' + graphStats.max + '\n' +
           'Total lignes générées : ' + rows.length + '\n' +
