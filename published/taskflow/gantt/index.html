@@ -4936,15 +4936,43 @@
             await loadColumnsForGroup(group, tableSelectEl.value, null);
         }
 
+        function getDefaultConfigOptions() {
+            return {
+                tableChefProjet: GRIST_CONFIG.tables.responsableProjet,
+                tableOperations: GRIST_CONFIG.tables.operations,
+                tablePhases: GRIST_CONFIG.tables.phases,
+                colChefNom: GRIST_CONFIG.columns.responsableProjet.nom,
+                colChefFonction: GRIST_CONFIG.columns.responsableProjet.fonction,
+                colChefActif: GRIST_CONFIG.columns.responsableProjet.actif,
+                colOpsNom: GRIST_CONFIG.columns.operations.nom,
+                colOpsNumOpe: GRIST_CONFIG.columns.operations.numOpe,
+                colOpsStatut: GRIST_CONFIG.columns.operations.statut,
+                colOpsDateReception: GRIST_CONFIG.columns.operations.dateReception,
+                colPhasesNom: GRIST_CONFIG.columns.phases.nom,
+                colPhasesCouleur: GRIST_CONFIG.columns.phases.couleur,
+                colPhasesNumOrder: GRIST_CONFIG.columns.phases.numOrder
+            };
+        }
+
         async function resetConfigToDefaults() {
-            // Réinitialiser TABLE/COL aux défauts GRIST_CONFIG
-            TABLE.responsableProjet = GRIST_CONFIG.tables.responsableProjet;
-            TABLE.operations        = GRIST_CONFIG.tables.operations;
-            TABLE.phases            = GRIST_CONFIG.tables.phases;
-            COL_CHEF   = { ...GRIST_CONFIG.columns.responsableProjet };
-            COL_OPS    = { ...GRIST_CONFIG.columns.operations };
-            COL_PHASES = { ...GRIST_CONFIG.columns.phases };
-            await populateConfigSelects();
+            const defaults = getDefaultConfigOptions();
+
+            const tableChef = document.getElementById('cfg-tableChefProjet');
+            const tableOps = document.getElementById('cfg-tableOperations');
+            const tablePhases = document.getElementById('cfg-tablePhases');
+
+            if (tableChef) tableChef.value = defaults.tableChefProjet;
+            if (tableOps) tableOps.value = defaults.tableOperations;
+            if (tablePhases) tablePhases.value = defaults.tablePhases;
+
+            await loadColumnsForGroup('chef', defaults.tableChefProjet, defaults);
+            await loadColumnsForGroup('ops', defaults.tableOperations, defaults);
+            await loadColumnsForGroup('phases', defaults.tablePhases, defaults);
+
+            CONFIG_FIELDS.forEach(f => {
+                const el = document.getElementById(f.id);
+                if (el && defaults[f.optionKey] !== undefined) el.value = defaults[f.optionKey];
+            });
         }
 
                 async function saveConfig() {
@@ -4957,26 +4985,6 @@
                 el.style.borderColor = '';
                 el.style.boxShadow = '';
             });
-
-            // Appliquer immédiatement les nouvelles valeurs aux variables actives
-            TABLE.responsableProjet = options.tableChefProjet;
-            TABLE.operations = options.tableOperations;
-            TABLE.phases     = options.tablePhases;
-
-            COL_CHEF.nom      = options.colChefNom;
-            COL_CHEF.fonction = options.colChefFonction;
-            COL_CHEF.actif    = options.colChefActif;
-
-            COL_OPS.nom           = options.colOpsNom;
-            COL_OPS.numOpe        = options.colOpsNumOpe;
-            COL_OPS.statut        = options.colOpsStatut;
-            COL_OPS.dateReception = options.colOpsDateReception;
-
-            COL_PHASES.nom      = options.colPhasesNom;
-            COL_PHASES.couleur  = options.colPhasesCouleur;
-            COL_PHASES.numOrder = options.colPhasesNumOrder;
-
-
 
             // Marquer que le widget a été configuré au moins une fois (sentinel)
             options._configured = true;
@@ -4994,11 +5002,31 @@
                 } catch (e) {
                     console.error('save config table error:', e);
                     showToast("Erreur lors de l'enregistrement", 'error');
+                    await populateConfigSelects();
+                    return;
                 }
             } else {
                 // Mode démo : appliquer sans persister
                 showToast('Configuration appliquée (mode démo)', 'info');
             }
+
+            // Appliquer les nouvelles valeurs uniquement après une sauvegarde réussie.
+            TABLE.responsableProjet = options.tableChefProjet;
+            TABLE.operations = options.tableOperations;
+            TABLE.phases     = options.tablePhases;
+
+            COL_CHEF.nom      = options.colChefNom;
+            COL_CHEF.fonction = options.colChefFonction;
+            COL_CHEF.actif    = options.colChefActif;
+
+            COL_OPS.nom           = options.colOpsNom;
+            COL_OPS.numOpe        = options.colOpsNumOpe;
+            COL_OPS.statut        = options.colOpsStatut;
+            COL_OPS.dateReception = options.colOpsDateReception;
+
+            COL_PHASES.nom      = options.colPhasesNom;
+            COL_PHASES.couleur  = options.colPhasesCouleur;
+            COL_PHASES.numOrder = options.colPhasesNumOrder;
 
             closeConfigPanel();
 
