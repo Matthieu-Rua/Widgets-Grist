@@ -4453,7 +4453,7 @@
         const GANTT_CONFIG_TABLE = 'Tb_Config_Gantt_Widget';
 
         // Correspondance entre les noms internes du widget et les colonnes de
-        // DPPI_Gantt_Config. Modifier ces valeurs si le schéma de la table change.
+        // Tb_Config_Gantt_Widget. Modifier ces valeurs si le schéma de la table change.
         const GANTT_CONFIG_COLUMNS = {
             sourceTable: 'Source_Table',
             tableChefProjet: 'Table_Responsables',
@@ -4488,7 +4488,7 @@
             return row;
         }
 
-        // Transforme une ligne DPPI_Gantt_Config en objet d'options compris par
+        // Transforme une ligne Tb_Config_Gantt_Widget en objet d'options compris par
         // le reste du widget (TABLE, COL_CHEF, COL_OPS, COL_PHASES).
         function optionsFromConfigRow(row) {
             if (!row) return null;
@@ -4512,7 +4512,7 @@
         }
 
         // Fait l'opération inverse : transforme les options courantes du widget
-        // en valeurs prêtes à être écrites dans DPPI_Gantt_Config.
+        // en valeurs prêtes à être écrites dans Tb_Config_Gantt_Widget.
         function configValuesFromOptions(options) {
             return {
                 [GANTT_CONFIG_COLUMNS.sourceTable]: TABLE.tasks || _mainTableId,
@@ -4533,7 +4533,7 @@
             };
         }
 
-        // Lit DPPI_Gantt_Config et retourne la configuration correspondant à la
+        // Lit Tb_Config_Gantt_Widget et retourne la configuration correspondant à la
         // table source du widget courant. Une ligne inactive est ignorée.
         async function loadGanttConfigTableOptions() {
             await ensureMainTableId();
@@ -4559,7 +4559,7 @@
             return null;
         }
 
-        // Sauvegarde le panneau de configuration dans DPPI_Gantt_Config.
+        // Sauvegarde le panneau de configuration dans Tb_Config_Gantt_Widget.
         // Si une ligne existe déjà pour la table source, elle est mise à jour ;
         // sinon le widget crée une nouvelle ligne de configuration.
         async function saveGanttConfigTableOptions(options) {
@@ -4677,7 +4677,7 @@
                     if (isFirstCall) {
                         console.log('[GANTT] onOptions PREMIER APPEL — gristOptions:', JSON.stringify(gristOptions));
 
-                        // La table DPPI_Gantt_Config est la source partagée prioritaire :
+                        // La table Tb_Config_Gantt_Widget est la source partagée prioritaire :
                         // elle suit le document Grist, pas le navigateur de l'utilisateur.
                         await ensureMainTableId();
                         let scopedOpts = await loadGanttConfigTableOptions();
