@@ -1752,7 +1752,7 @@
             tables: {
                 tasks:      'Tasks',
                 responsableProjet: 'DPPI_User',
-                operations: 'DPPI_Operation',
+                operations: 'DPPI_Projet',
                 phases:     'DPPI_Categorie_Phase'
             },
             // Noms des colonnes par défaut (écrasés par le mappage Grist)
@@ -1777,9 +1777,9 @@
                     actif:    'Actif'
                 },
                 operations: {
-                    nom:            'Nom_Ope',     // Nom de l'opération
-                    numOpe:         'Num_Ope',
-                    statut:         'Statut_Ope',
+                    nom:            'Nom_Projet',     // Nom du projet
+                    numOpe:         'Num_Projet',
+                    statut:         'Statut_Projet',
                     exercice:       'Exercice',
                     dateReception:  'Date_Reception_Depuis_Gantt'
                 },
@@ -1890,11 +1890,11 @@
         let _mainTableId = null; // Vrai ID Grist de la table principale (mis à jour par onRecords)
         let tasks = [];
         let team = [];      // DPPI_User
-        let projects = [];  // DPPI_Operation
+        let projects = [];  // DPPI_Projet
 
         // Modes de layout : 'multi' (défaut), 'compact', 'single'
         let layoutMode = 'compact';
-        // En mode 'single' : ID de l'opération sélectionnée (null = toutes)
+        // En mode 'single' : ID du projet sélectionné (null = tous)
         let selectedProjectId = null;
         let currentView = 'year';
         let viewStartDate = new Date();
@@ -2100,7 +2100,7 @@
             return phaseId ? (resolvePhaseCouleur(phaseId) || null) : null;
         }
 
-        // Résolution du nom du projet (DPPI_Operation)
+        // Résolution du nom du projet (DPPI_Projet)
         function getTaskProjetNom(t) {
             const val = t[COL.projet];
             if (!val) return '';
@@ -4457,15 +4457,15 @@
         const GANTT_CONFIG_COLUMNS = {
             sourceTable: 'Source_Table',
             tableChefProjet: 'Table_Responsables',
-            tableOperations: 'Table_Operations',
+            tableOperations: 'Table_Projets',
             tablePhases: 'Table_Categorie_Phase',
             colChefNom: 'Col_Resp_Nom',
             colChefFonction: 'Col_Resp_Fonction',
             colChefActif: 'Col_Resp_Actif',
-            colOpsNom: 'Col_Operation_Nom',
-            colOpsNumOpe: 'Col_Operation_Num',
-            colOpsStatut: 'Col_Operation_Statut',
-            colOpsDateReception: 'Col_Operation_Date_Reception',
+            colOpsNom: 'Col_Projet_Nom',
+            colOpsNumOpe: 'Col_Projet_Num',
+            colOpsStatut: 'Col_Projet_Statut',
+            colOpsDateReception: 'Col_Projet_Date_Reception',
             colPhasesNom: 'Col_Categorie_Nom',
             colPhasesCouleur: 'Col_Categorie_Couleur',
             colPhasesNumOrder: 'Col_Categorie_Ordre',
