@@ -4451,6 +4451,7 @@
         // Table Grist utilisée comme source principale de configuration partagée.
         // Contrairement au localStorage, ces valeurs sont communes à tous les utilisateurs.
         const GANTT_CONFIG_TABLE = 'Tb_Config_Gantt_Widget';
+        const GANTT_CONFIG_TABLE_ALIASES = [GANTT_CONFIG_TABLE, 'DPPI_Gantt_Config'];
 
         // Correspondance entre les noms internes du widget et les colonnes de
         // Tb_Config_Gantt_Widget. Modifier ces valeurs si le schéma de la table change.
@@ -4471,6 +4472,60 @@
             colPhasesNumOrder: 'Col_Categorie_Ordre',
             active: 'Active'
         };
+
+        const GANTT_CONFIG_COLUMN_ALIASES = {
+            sourceTable: ['Source_Table'],
+            tableChefProjet: ['Table_Responsables'],
+            tableOperations: ['Table_Projets', 'Table_Operations'],
+            tablePhases: ['Table_Categorie_Phase'],
+            colChefNom: ['Col_Resp_Nom'],
+            colChefFonction: ['Col_Resp_Fonction'],
+            colChefActif: ['Col_Resp_Actif'],
+            colOpsNom: ['Col_Projet_Nom', 'Col_Operation_Nom'],
+            colOpsNumOpe: ['Col_Projet_Num', 'Col_Operation_Num'],
+            colOpsStatut: ['Col_Projet_Statut', 'Col_Operation_Statut'],
+            colOpsDateReception: ['Col_Projet_Date_Reception', 'Col_Operation_Date_Reception'],
+            colPhasesNom: ['Col_Categorie_Nom'],
+            colPhasesCouleur: ['Col_Categorie_Couleur'],
+            colPhasesNumOrder: ['Col_Categorie_Ordre'],
+            active: ['Active']
+        };
+
+        async function fetchFirstAvailableTable(tableNames) {
+            let lastError = null;
+            for (const tableName of tableNames) {
+                try {
+                    const data = await grist.docApi.fetchTable(tableName);
+                    return { tableName, data };
+                } catch (e) {
+                    lastError = e;
+                }
+            }
+            throw lastError || new Error('Table de configuration introuvable');
+        }
+
+        function configColumn(data, key) {
+            const aliases = GANTT_CONFIG_COLUMN_ALIASES[key] || [GANTT_CONFIG_COLUMNS[key]];
+            const found = aliases.find(col => Object.prototype.hasOwnProperty.call(data || {}, col));
+            return found || GANTT_CONFIG_COLUMNS[key];
+        }
+
+        function requiredConfigColumn(data, key) {
+            const aliases = GANTT_CONFIG_COLUMN_ALIASES[key] || [GANTT_CONFIG_COLUMNS[key]];
+            const found = aliases.find(col => Object.prototype.hasOwnProperty.call(data || {}, col));
+            if (!found) {
+                throw new Error('Colonne manquante dans la table de configuration : ' + aliases.join(' ou '));
+            }
+            return found;
+        }
+
+        function configRowValue(row, key) {
+            const aliases = GANTT_CONFIG_COLUMN_ALIASES[key] || [GANTT_CONFIG_COLUMNS[key]];
+            for (const col of aliases) {
+                if (row && row[col] !== undefined) return row[col];
+            }
+            return undefined;
+        }
 
         // Normalise les booléens venant de Grist, qui peuvent être reçus sous
         // forme de booléen, nombre ou texte selon le contexte d'appel.
@@ -4493,19 +4548,19 @@
         function optionsFromConfigRow(row) {
             if (!row) return null;
             return {
-                tableChefProjet: row[GANTT_CONFIG_COLUMNS.tableChefProjet],
-                tableOperations: row[GANTT_CONFIG_COLUMNS.tableOperations],
-                tablePhases: row[GANTT_CONFIG_COLUMNS.tablePhases],
-                colChefNom: row[GANTT_CONFIG_COLUMNS.colChefNom],
-                colChefFonction: row[GANTT_CONFIG_COLUMNS.colChefFonction],
-                colChefActif: row[GANTT_CONFIG_COLUMNS.colChefActif],
-                colOpsNom: row[GANTT_CONFIG_COLUMNS.colOpsNom],
-                colOpsNumOpe: row[GANTT_CONFIG_COLUMNS.colOpsNumOpe],
-                colOpsStatut: row[GANTT_CONFIG_COLUMNS.colOpsStatut],
-                colOpsDateReception: row[GANTT_CONFIG_COLUMNS.colOpsDateReception],
-                colPhasesNom: row[GANTT_CONFIG_COLUMNS.colPhasesNom],
-                colPhasesCouleur: row[GANTT_CONFIG_COLUMNS.colPhasesCouleur],
-                colPhasesNumOrder: row[GANTT_CONFIG_COLUMNS.colPhasesNumOrder],
+                tableChefProjet: configRowValue(row, 'tableChefProjet'),
+                tableOperations: configRowValue(row, 'tableOperations'),
+                tablePhases: configRowValue(row, 'tablePhases'),
+                colChefNom: configRowValue(row, 'colChefNom'),
+                colChefFonction: configRowValue(row, 'colChefFonction'),
+                colChefActif: configRowValue(row, 'colChefActif'),
+                colOpsNom: configRowValue(row, 'colOpsNom'),
+                colOpsNumOpe: configRowValue(row, 'colOpsNumOpe'),
+                colOpsStatut: configRowValue(row, 'colOpsStatut'),
+                colOpsDateReception: configRowValue(row, 'colOpsDateReception'),
+                colPhasesNom: configRowValue(row, 'colPhasesNom'),
+                colPhasesCouleur: configRowValue(row, 'colPhasesCouleur'),
+                colPhasesNumOrder: configRowValue(row, 'colPhasesNumOrder'),
                 _configured: true,
                 _source: 'configTable'
             };
@@ -4513,23 +4568,23 @@
 
         // Fait l'opération inverse : transforme les options courantes du widget
         // en valeurs prêtes à être écrites dans Tb_Config_Gantt_Widget.
-        function configValuesFromOptions(options) {
+        function configValuesFromOptions(options, configTableData) {
             return {
-                [GANTT_CONFIG_COLUMNS.sourceTable]: TABLE.tasks || _mainTableId,
-                [GANTT_CONFIG_COLUMNS.tableChefProjet]: options.tableChefProjet,
-                [GANTT_CONFIG_COLUMNS.tableOperations]: options.tableOperations,
-                [GANTT_CONFIG_COLUMNS.tablePhases]: options.tablePhases,
-                [GANTT_CONFIG_COLUMNS.colChefNom]: options.colChefNom,
-                [GANTT_CONFIG_COLUMNS.colChefFonction]: options.colChefFonction,
-                [GANTT_CONFIG_COLUMNS.colChefActif]: options.colChefActif,
-                [GANTT_CONFIG_COLUMNS.colOpsNom]: options.colOpsNom,
-                [GANTT_CONFIG_COLUMNS.colOpsNumOpe]: options.colOpsNumOpe,
-                [GANTT_CONFIG_COLUMNS.colOpsStatut]: options.colOpsStatut,
-                [GANTT_CONFIG_COLUMNS.colOpsDateReception]: options.colOpsDateReception,
-                [GANTT_CONFIG_COLUMNS.colPhasesNom]: options.colPhasesNom,
-                [GANTT_CONFIG_COLUMNS.colPhasesCouleur]: options.colPhasesCouleur,
-                [GANTT_CONFIG_COLUMNS.colPhasesNumOrder]: options.colPhasesNumOrder,
-                [GANTT_CONFIG_COLUMNS.active]: true
+                [requiredConfigColumn(configTableData, 'sourceTable')]: TABLE.tasks || _mainTableId,
+                [requiredConfigColumn(configTableData, 'tableChefProjet')]: options.tableChefProjet,
+                [requiredConfigColumn(configTableData, 'tableOperations')]: options.tableOperations,
+                [requiredConfigColumn(configTableData, 'tablePhases')]: options.tablePhases,
+                [requiredConfigColumn(configTableData, 'colChefNom')]: options.colChefNom,
+                [requiredConfigColumn(configTableData, 'colChefFonction')]: options.colChefFonction,
+                [requiredConfigColumn(configTableData, 'colChefActif')]: options.colChefActif,
+                [requiredConfigColumn(configTableData, 'colOpsNom')]: options.colOpsNom,
+                [requiredConfigColumn(configTableData, 'colOpsNumOpe')]: options.colOpsNumOpe,
+                [requiredConfigColumn(configTableData, 'colOpsStatut')]: options.colOpsStatut,
+                [requiredConfigColumn(configTableData, 'colOpsDateReception')]: options.colOpsDateReception,
+                [requiredConfigColumn(configTableData, 'colPhasesNom')]: options.colPhasesNom,
+                [requiredConfigColumn(configTableData, 'colPhasesCouleur')]: options.colPhasesCouleur,
+                [requiredConfigColumn(configTableData, 'colPhasesNumOrder')]: options.colPhasesNumOrder,
+                [requiredConfigColumn(configTableData, 'active')]: true
             };
         }
 
@@ -4541,13 +4596,13 @@
             if (!sourceTable) return null;
 
             try {
-                const data = await grist.docApi.fetchTable(GANTT_CONFIG_TABLE);
-                const sources = data[GANTT_CONFIG_COLUMNS.sourceTable] || [];
+                const { data } = await fetchFirstAvailableTable(GANTT_CONFIG_TABLE_ALIASES);
+                const sources = data[configColumn(data, 'sourceTable')] || [];
                 const ids = data.id || [];
 
                 for (let i = 0; i < sources.length; i++) {
                     if (String(sources[i]) !== String(sourceTable)) continue;
-                    const activeValues = data[GANTT_CONFIG_COLUMNS.active];
+                    const activeValues = data[configColumn(data, 'active')];
                     if (activeValues && activeValues[i] !== undefined && !gristBool(activeValues[i])) continue;
                     const row = configRowFromTable(data, i);
                     row.id = ids[i];
@@ -4567,9 +4622,9 @@
             const sourceTable = TABLE.tasks || _mainTableId;
             if (!sourceTable) throw new Error('Table source introuvable');
 
-            const values = configValuesFromOptions(options);
-            const data = await grist.docApi.fetchTable(GANTT_CONFIG_TABLE);
-            const sources = data[GANTT_CONFIG_COLUMNS.sourceTable] || [];
+            const { tableName, data } = await fetchFirstAvailableTable(GANTT_CONFIG_TABLE_ALIASES);
+            const values = configValuesFromOptions(options, data);
+            const sources = data[configColumn(data, 'sourceTable')] || [];
             const ids = data.id || [];
             let existingId = null;
 
@@ -4581,8 +4636,8 @@
             }
 
             const action = existingId
-                ? ['UpdateRecord', GANTT_CONFIG_TABLE, existingId, values]
-                : ['AddRecord', GANTT_CONFIG_TABLE, null, values];
+                ? ['UpdateRecord', tableName, existingId, values]
+                : ['AddRecord', tableName, null, values];
             await grist.docApi.applyUserActions([action]);
         }
 
@@ -5001,7 +5056,7 @@
                     document.getElementById('missingColsBanner')?.classList.remove('visible');
                 } catch (e) {
                     console.error('save config table error:', e);
-                    showToast("Erreur lors de l'enregistrement", 'error');
+                    showToast("Erreur lors de l'enregistrement : " + (e.message || e), 'error', 6000);
                     await populateConfigSelects();
                     return;
                 }
