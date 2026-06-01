@@ -4473,6 +4473,8 @@
             active: 'Active'
         };
 
+        // Alias acceptés pendant la migration des libellés "opérations" vers "projets".
+        // Le widget lit et écrit dans la colonne réellement présente dans Grist.
         const GANTT_CONFIG_COLUMN_ALIASES = {
             sourceTable: ['Source_Table'],
             tableChefProjet: ['Table_Responsables'],
@@ -4491,6 +4493,8 @@
             active: ['Active']
         };
 
+        // Récupère la première table de configuration disponible parmi les noms connus.
+        // Cela permet de conserver les documents qui utilisent encore l'ancien nom.
         async function fetchFirstAvailableTable(tableNames) {
             let lastError = null;
             for (const tableName of tableNames) {
@@ -4504,12 +4508,16 @@
             throw lastError || new Error('Table de configuration introuvable');
         }
 
+        // Retourne la colonne de configuration existante pour une clé logique,
+        // avec un fallback vers le nouveau nom attendu.
         function configColumn(data, key) {
             const aliases = GANTT_CONFIG_COLUMN_ALIASES[key] || [GANTT_CONFIG_COLUMNS[key]];
             const found = aliases.find(col => Object.prototype.hasOwnProperty.call(data || {}, col));
             return found || GANTT_CONFIG_COLUMNS[key];
         }
 
+        // Variante stricte utilisée avant écriture : si aucune colonne compatible
+        // n'existe, on remonte une erreur explicite à l'utilisateur.
         function requiredConfigColumn(data, key) {
             const aliases = GANTT_CONFIG_COLUMN_ALIASES[key] || [GANTT_CONFIG_COLUMNS[key]];
             const found = aliases.find(col => Object.prototype.hasOwnProperty.call(data || {}, col));
@@ -4519,6 +4527,8 @@
             return found;
         }
 
+        // Lit une valeur de configuration depuis une ligne, en acceptant les anciens
+        // et nouveaux noms de colonnes pour le même champ logique.
         function configRowValue(row, key) {
             const aliases = GANTT_CONFIG_COLUMN_ALIASES[key] || [GANTT_CONFIG_COLUMNS[key]];
             for (const col of aliases) {
@@ -4918,12 +4928,14 @@
             phases: { tableId: 'cfg-tablePhases',      curTable: () => TABLE.phases },
         };
 
+        // Ferme le panneau latéral sans modifier la configuration active.
         function closeConfigPanel() {
             document.getElementById('configPanel').classList.remove('open');
             document.getElementById('configOverlay').classList.remove('visible');
             document.getElementById('configBtn').classList.remove('active');
         }
 
+        // Ouvre le panneau et recharge les listes depuis les tables Grist actuelles.
         async function openConfigPanel() {
             document.getElementById('configPanel').classList.add('open');
             document.getElementById('configOverlay').classList.add('visible');
@@ -4931,6 +4943,7 @@
             await populateConfigSelects();
         }
 
+        // Reconstruit les selects de tables/colonnes en conservant les valeurs saisies.
         async function populateConfigSelects() {
             // Récupérer toutes les tables du document
             let allTables = [];
@@ -4961,6 +4974,7 @@
             }
         }
 
+        // Charge les colonnes d'une table et signale les anciennes valeurs introuvables.
         async function loadColumnsForGroup(group, tableName, current) {
             if (!tableName) return;
             let cols = [];
@@ -4987,10 +5001,13 @@
             });
         }
 
+        // Recharge les colonnes disponibles quand l'utilisateur change une table.
         async function onTableSelect(tableSelectEl, group) {
             await loadColumnsForGroup(group, tableSelectEl.value, null);
         }
 
+        // Centralise les valeurs par défaut pour éviter d'appliquer le reset en mémoire
+        // avant que l'utilisateur enregistre réellement la configuration.
         function getDefaultConfigOptions() {
             return {
                 tableChefProjet: GRIST_CONFIG.tables.responsableProjet,
@@ -5009,6 +5026,7 @@
             };
         }
 
+        // Remet les champs du panneau aux valeurs par défaut sans toucher au Gantt actif.
         async function resetConfigToDefaults() {
             const defaults = getDefaultConfigOptions();
 
