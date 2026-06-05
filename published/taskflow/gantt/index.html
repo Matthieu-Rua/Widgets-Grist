@@ -2985,7 +2985,6 @@
                     <div class="compact-label" style="width:${LW}px;min-width:${LW}px;position:sticky;left:0;z-index:3;background:var(--card-bg);border-right:1px solid var(--border);"
                          onclick="selectCompactProject(${proj.id})">
                         <div class="compact-label-nom">${escapeHtml(proj[COL_OPS.nom])}</div>
-                        <div class="compact-label-meta">${proj[COL_OPS.numOpe] || ''} · ${pts.length} phase${pts.length > 1 ? 's' : ''}</div>
                     </div>
                     <div class="compact-grid" style="position:relative;width:${totalWidth}px;min-width:${totalWidth}px;height:${ROW_H}px;overflow:hidden;display:flex;">
                         ${makeCells()}
