@@ -184,6 +184,18 @@
         .filter-btn:hover { background: var(--bg); }
         .filter-btn.active { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
 
+        .project-update-meta {
+            display: none;
+            align-items: center;
+            min-height: 28px;
+            padding: 0 2px;
+            color: var(--text-muted);
+            font-size: 0.72rem;
+            font-weight: 500;
+        }
+
+        .project-update-meta.visible { display: flex; }
+
         .filter-menu {
             position: absolute;
             top: 100%;
@@ -1618,6 +1630,7 @@
                 <div class="filter-footer"><button class="filter-apply-btn" data-filter-apply="filterAssignee">OK</button></div>
             </div>
         </div>
+        <div class="project-update-meta" id="projectUpdateMeta"></div>
     </div>
 
     <div class="gantt-container">
@@ -2315,15 +2328,27 @@
             if (layoutMode === 'single' && filters.projects !== null && filters.projects.length === 1) {
                 const projectId = filters.projects[0];
                 const proj = projects.find(p => String(p.id) === String(projectId));
-                if (proj) {
-                    const latestUpdate = getLatestProjectUpdateDate(projectId);
-                    const updateText = latestUpdate ? 'Dernière mise à jour : ' + formatDate(latestUpdate) : 'Dernière mise à jour : -';
-                    text = (proj[COL_OPS.nom] || '') + (text ? ' · ' + text : '') + ' · ' + updateText;
-                }
+                if (proj) text = (proj[COL_OPS.nom] || '') + (text ? ' · ' + text : '');
             } else if (layoutMode === 'single' && filters.projects !== null && filters.projects.length > 1) {
                 text = filters.projects.length + ' opérations · ' + text;
             }
             document.getElementById('currentPeriod').textContent = text;
+            updateProjectUpdateMeta();
+        }
+
+        function updateProjectUpdateMeta() {
+            const el = document.getElementById('projectUpdateMeta');
+            if (!el) return;
+
+            if (layoutMode !== 'single' || filters.projects === null || filters.projects.length !== 1) {
+                el.classList.remove('visible');
+                el.textContent = '';
+                return;
+            }
+
+            const latestUpdate = getLatestProjectUpdateDate(filters.projects[0]);
+            el.textContent = 'Dernière mise à jour : ' + (latestUpdate ? formatDate(latestUpdate) : '-');
+            el.classList.add('visible');
         }
 
         // ═══════════════════════════════════════════════════════════════════════
