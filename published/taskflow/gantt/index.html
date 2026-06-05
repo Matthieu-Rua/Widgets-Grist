@@ -1767,7 +1767,8 @@
                     assignees:    'assignees',    // RefList → responsables
                     dependDe:     'dependDe',     // RefList → prédécesseurs
                     dateDebutCalc:'dateDebutCalc',
-                    dateFinCalc:  'dateFinCalc'
+                    dateFinCalc:  'dateFinCalc',
+                    dateDerniereMaj: 'Date_Derniere_Maj'
                 },
                 responsableProjet: {
                     nom:      'Prenom_Nom',  // Nom complet affiché
@@ -2312,8 +2313,13 @@
             }
             // En mode single avec filtre projet unique, afficher le nom
             if (layoutMode === 'single' && filters.projects !== null && filters.projects.length === 1) {
-                const proj = projects.find(p => String(p.id) === String(filters.projects[0]));
-                if (proj) text = (proj[COL_OPS.nom] || '') + (text ? ' · ' + text : '');
+                const projectId = filters.projects[0];
+                const proj = projects.find(p => String(p.id) === String(projectId));
+                if (proj) {
+                    const latestUpdate = getLatestProjectUpdateDate(projectId);
+                    const updateText = latestUpdate ? 'Dernière mise à jour : ' + formatDate(latestUpdate) : 'Dernière mise à jour : -';
+                    text = (proj[COL_OPS.nom] || '') + (text ? ' · ' + text : '') + ' · ' + updateText;
+                }
             } else if (layoutMode === 'single' && filters.projects !== null && filters.projects.length > 1) {
                 text = filters.projects.length + ' opérations · ' + text;
             }
@@ -2555,6 +2561,15 @@
 
         function getFilteredTasks() {
             return tasks.filter(taskMatchesFilters);
+        }
+
+        function getLatestProjectUpdateDate(projectId) {
+            if (!projectId || !COL.dateDerniereMaj) return null;
+            return tasks
+                .filter(t => String(t[COL.projet]) === String(projectId))
+                .map(t => gristToDate(t[COL.dateDerniereMaj]))
+                .filter(Boolean)
+                .sort((a, b) => b.getTime() - a.getTime())[0] || null;
         }
 
         // Retourne la liste ordonnée de "lignes" pour la vue single (et multi).
@@ -4665,6 +4680,7 @@
                         { name: 'duree',         title: 'Durée (jours)',                type: 'Numeric', optional: false },
                         { name: 'dateDebutCalc', title: 'Date début calculée',          type: 'Date',    optional: true  },
                         { name: 'dateFinCalc',   title: 'Date fin calculée',            type: 'Date',    optional: true  },
+                        { name: 'dateDerniereMaj', title: 'Date dernière mise à jour',   type: 'Date',    optional: true  },
                         { name: 'projet',        title: 'Opération (Ref)',              type: 'Ref',     optional: true  },
                         { name: 'assignees',     title: 'Responsables',                 type: 'RefList', optional: true  },
                         { name: 'dependDe',      title: 'Dépend de',                    type: 'RefList', optional: true  },
