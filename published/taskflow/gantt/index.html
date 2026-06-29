@@ -91,6 +91,59 @@
             gap: 8px;
         }
 
+        .top-controls-toggle {
+            padding: 6px 9px;
+        }
+
+        .top-controls-toggle svg {
+            transition: transform 0.15s;
+        }
+
+        .header-toggle-strip {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-shrink: 0;
+            padding: 6px 12px;
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border);
+            box-shadow: var(--shadow);
+        }
+
+        .header-toggle-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+
+        .header-toggle-title strong {
+            color: var(--primary);
+            font-size: 0.82rem;
+        }
+
+        .header-toggle-period {
+            min-width: 0;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            color: var(--text);
+            font-weight: 500;
+        }
+
+        body.top-controls-collapsed .header,
+        body.top-controls-collapsed .filter-bar {
+            display: none;
+        }
+
+        body.top-controls-collapsed .header-toggle-strip {
+            display: flex;
+        }
+
         .btn {
             padding: 6px 12px;
             border-radius: 6px;
@@ -1409,6 +1462,7 @@
             :root { --task-list-width: 200px; --cell-width: 28px; }
             .header { flex-direction: column; align-items: stretch; }
             .header-center { justify-content: center; }
+            .header-toggle-strip { align-items: stretch; }
         }
 
         @media (max-width: 600px) {
@@ -1429,6 +1483,19 @@
         </svg>
         <span class="banner-msg" id="missingColsBannerMsg"></span>
         <button class="banner-btn" onclick="openConfigPanel()">Reconfigurer</button>
+    </div>
+
+    <div class="header-toggle-strip" id="headerToggleStrip">
+        <div class="header-toggle-title">
+            <strong>Gantt</strong>
+            <span class="header-toggle-period" id="headerCollapsedPeriod"></span>
+        </div>
+        <button class="btn top-controls-toggle" onclick="setTopControlsCollapsed(false)" title="Afficher les contrôles">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 15 12 9 18 15"></polyline>
+            </svg>
+            Afficher les contrôles
+        </button>
     </div>
 
     <div class="header">
@@ -1474,6 +1541,12 @@
             </div>
         </div>
         <div class="header-right">
+            <button class="btn top-controls-toggle" onclick="setTopControlsCollapsed(true)" title="Masquer les contrôles">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+                Masquer
+            </button>
             <button class="btn primary" onclick="openCreateModal()">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -2347,6 +2420,8 @@
                 text = filters.projects.length + ' opérations · ' + text;
             }
             document.getElementById('currentPeriod').textContent = text;
+            const collapsedPeriod = document.getElementById('headerCollapsedPeriod');
+            if (collapsedPeriod) collapsedPeriod.textContent = text;
             updateProjectUpdateMeta();
         }
 
@@ -2650,6 +2725,19 @@
         // ═══════════════════════════════════════════════════════════════════════
         // RENDER
         // ═══════════════════════════════════════════════════════════════════════
+        function setTopControlsCollapsed(collapsed) {
+            document.body.classList.toggle('top-controls-collapsed', !!collapsed);
+            try { localStorage.setItem(getScopedStorageKey('taskflow_gantt_top_controls_collapsed'), collapsed ? '1' : '0'); } catch(e) {}
+            try { closeAllFilterMenus(); } catch(e) {}
+            setTimeout(() => render(), 0);
+        }
+
+        function loadTopControlsState() {
+            let collapsed = false;
+            try { collapsed = localStorage.getItem(getScopedStorageKey('taskflow_gantt_top_controls_collapsed')) === '1'; } catch(e) {}
+            document.body.classList.toggle('top-controls-collapsed', collapsed);
+        }
+
         function render() {
             updatePeriodLabel();
             if (layoutMode === 'compact') {
@@ -5360,6 +5448,9 @@
                 updateFilterUI();
             }
         }, true);
+
+        // Restaurer l'état du header avant le premier rendu.
+        loadTopControlsState();
 
         // Initialiser le layout compact (mode par défaut)
         setLayoutMode('compact');
